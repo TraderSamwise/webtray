@@ -19,7 +19,7 @@ struct Config {
         }
         let size = flag("--size", "630x700").split(separator: "x")
         return Config(
-            url: URL(string: flag("--url", "https://www.icloud.com/reminders"))!,
+            url: URL(string: flag("--url", "https://www.icloud.com/notes"))!,
             icon: flag("--icon", "checklist"),
             title: flag("--title", "MenuTray"),
             idleTimeout: Double(flag("--idle", "600")) ?? 600,
@@ -37,7 +37,7 @@ struct Tab {
     let hostMatch: String
 }
 
-class WebViewController: NSViewController, WKUIDelegate {
+class WebViewController: NSViewController, WKUIDelegate, WKNavigationDelegate {
     private var webView: WKWebView?
     private var backButton: NSButton!
     private var tabButtons: [NSButton] = []
@@ -51,9 +51,9 @@ class WebViewController: NSViewController, WKUIDelegate {
     init(config: Config) {
         self.config = config
         self.tabs = [
-            Tab(label: "Apple", url: config.url, hostMatch: "icloud"),
+            Tab(label: "iCloud", url: config.url, hostMatch: "icloud"),
             Tab(label: "Gmail", url: URL(string: "https://mail.google.com/mail/mu/")!, hostMatch: "mail.google"),
-            Tab(label: "Calendar", url: URL(string: "https://calendar.google.com")!, hostMatch: "calendar.google"),
+            Tab(label: "Calendar", url: URL(string: "https://calendar.google.com/calendar/r")!, hostMatch: "calendar.google"),
         ]
         super.init(nibName: nil, bundle: nil)
     }
@@ -170,6 +170,7 @@ class WebViewController: NSViewController, WKUIDelegate {
         wv.autoresizingMask = [.width, .height]
         wv.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1"
         wv.uiDelegate = self
+        wv.navigationDelegate = self
         view.addSubview(wv, positioned: .below, relativeTo: toolbar)
         webView = wv
 
@@ -201,12 +202,34 @@ class WebViewController: NSViewController, WKUIDelegate {
 
     @objc func goBack() { webView?.goBack() }
 
+    private let internalHosts = ["icloud.com", "apple.com", "google.com", "googleapis.com", "gstatic.com", "accounts.google.com"]
+
+    private func isInternalNavigation(_ url: URL) -> Bool {
+        guard let host = url.host else { return true }
+        return internalHosts.contains(where: { host.hasSuffix($0) })
+    }
+
+    func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction, decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        guard navigationAction.navigationType == .linkActivated,
+              let url = navigationAction.request.url,
+              !isInternalNavigation(url) else {
+            decisionHandler(.allow)
+            return
+        }
+        NSWorkspace.shared.open(url)
+        decisionHandler(.cancel)
+    }
+
     func webView(
         _ webView: WKWebView,
         createWebViewWith configuration: WKWebViewConfiguration,
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
+        if let url = navigationAction.request.url, !isInternalNavigation(url) {
+            NSWorkspace.shared.open(url)
+            return nil
+        }
         if navigationAction.targetFrame == nil {
             webView.load(navigationAction.request)
         }
