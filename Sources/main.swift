@@ -29,7 +29,7 @@ struct Config {
     }
 }
 
-// MARK: - WebViewController
+// MARK: - Tab
 
 struct Tab {
     let label: String
@@ -37,24 +37,45 @@ struct Tab {
     let hostMatch: String
 }
 
+class TabState {
+    let tab: Tab
+    var webView: WKWebView?
+    var idleTimer: Timer?
+    var canGoBackObservation: NSKeyValueObservation?
+    var isWarm: Bool { webView != nil }
+
+    init(tab: Tab) { self.tab = tab }
+
+    func tearDown() {
+        idleTimer?.invalidate()
+        idleTimer = nil
+        canGoBackObservation = nil
+        webView?.removeFromSuperview()
+        webView = nil
+    }
+}
+
+// MARK: - WebViewController
+
 class WebViewController: NSViewController, WKUIDelegate, WKNavigationDelegate {
-    private var webView: WKWebView?
+    private var tabStates: [TabState] = []
     private var backButton: NSButton!
     private var tabButtons: [NSButton] = []
     private var toolbar: NSView!
-    private var canGoBackObservation: NSKeyValueObservation?
-    private var urlObservation: NSKeyValueObservation?
+    private var currentTab: Int = 0
     private static let toolbarHeight: CGFloat = 24
     let config: Config
-    let tabs: [Tab]
+
+    private let internalHosts = ["icloud.com", "apple.com", "google.com", "googleapis.com", "gstatic.com"]
 
     init(config: Config) {
         self.config = config
-        self.tabs = [
+        let tabs = [
             Tab(label: "iCloud", url: config.url, hostMatch: "icloud"),
             Tab(label: "Gmail", url: URL(string: "https://mail.google.com/mail/mu/")!, hostMatch: "mail.google"),
             Tab(label: "Calendar", url: URL(string: "https://calendar.google.com/calendar/r")!, hostMatch: "calendar.google"),
         ]
+        self.tabStates = tabs.map { TabState(tab: $0) }
         super.init(nibName: nil, bundle: nil)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -66,7 +87,7 @@ class WebViewController: NSViewController, WKUIDelegate, WKNavigationDelegate {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupToolbar()
-        warmUp()
+        showTab(0)
     }
 
     private func setupToolbar() {
@@ -90,10 +111,10 @@ class WebViewController: NSViewController, WKUIDelegate, WKNavigationDelegate {
         toolbar.addSubview(backButton)
 
         var x: CGFloat = 28
-        for (i, tab) in tabs.enumerated() {
+        for (i, state) in tabStates.enumerated() {
             let btn = NSButton(frame: .zero)
             btn.bezelStyle = .accessoryBarAction
-            btn.title = tab.label
+            btn.title = state.tab.label
             btn.font = NSFont.systemFont(ofSize: 11, weight: .medium)
             btn.isBordered = false
             btn.target = self
@@ -120,33 +141,28 @@ class WebViewController: NSViewController, WKUIDelegate, WKNavigationDelegate {
         highlightTab(0)
     }
 
-    @objc private func doReload() { webView?.reload() }
+    // MARK: - Tab switching
 
-    private func highlightTab(_ activeIndex: Int) {
-        for (i, btn) in tabButtons.enumerated() {
-            btn.contentTintColor = i == activeIndex ? .controlAccentColor : .tertiaryLabelColor
+    private func showTab(_ index: Int) {
+        let prev = tabStates[currentTab]
+        prev.webView?.isHidden = true
+        startIdleTimer(for: currentTab)
+
+        currentTab = index
+        let state = tabStates[index]
+
+        state.idleTimer?.invalidate()
+        state.idleTimer = nil
+
+        if !state.isWarm {
+            createWebView(for: state)
         }
+        state.webView?.isHidden = false
+        updateBackButton()
+        highlightTab(index)
     }
 
-    private var currentTab: Int = 0
-
-    private func activeTabIndex(for url: URL?) -> Int? {
-        guard let host = url?.host else { return nil }
-        for (i, tab) in tabs.enumerated() {
-            if host.contains(tab.hostMatch) { return i }
-        }
-        return nil
-    }
-
-    @objc private func tabClicked(_ sender: NSButton) {
-        let tab = tabs[sender.tag]
-        webView?.load(URLRequest(url: tab.url))
-        currentTab = sender.tag
-        highlightTab(sender.tag)
-    }
-
-    func warmUp() {
-        guard webView == nil else { return }
+    private func createWebView(for state: TabState) {
         let cfg = WKWebViewConfiguration()
         cfg.websiteDataStore = .default()
         let prefs = WKWebpagePreferences()
@@ -172,37 +188,76 @@ class WebViewController: NSViewController, WKUIDelegate, WKNavigationDelegate {
         wv.uiDelegate = self
         wv.navigationDelegate = self
         view.addSubview(wv, positioned: .below, relativeTo: toolbar)
-        webView = wv
+        state.webView = wv
 
-        canGoBackObservation = wv.observe(\.canGoBack, options: [.new]) { [weak self] _, change in
-            self?.backButton.isEnabled = change.newValue ?? false
-        }
-        urlObservation = wv.observe(\.url, options: [.new]) { [weak self] _, change in
-            guard let self, let idx = self.activeTabIndex(for: change.newValue ?? nil) else { return }
-            self.currentTab = idx
-            self.highlightTab(idx)
+        state.canGoBackObservation = wv.observe(\.canGoBack, options: [.new]) { [weak self] _, _ in
+            self?.updateBackButton()
         }
 
-        wv.load(URLRequest(url: config.url))
+        wv.load(URLRequest(url: state.tab.url))
     }
 
-    func tearDown() {
-        canGoBackObservation = nil
-        urlObservation = nil
-        webView?.removeFromSuperview()
-        webView = nil
+    private func updateBackButton() {
+        backButton.isEnabled = tabStates[currentTab].webView?.canGoBack ?? false
+    }
+
+    // MARK: - Idle management
+
+    private func startIdleTimer(for index: Int) {
+        let state = tabStates[index]
+        guard state.isWarm else { return }
+        state.idleTimer?.invalidate()
+        state.idleTimer = Timer.scheduledTimer(withTimeInterval: config.idleTimeout, repeats: false) { [weak state] _ in
+            state?.tearDown()
+        }
+    }
+
+    func startAllIdleTimers() {
+        for i in 0..<tabStates.count {
+            startIdleTimer(for: i)
+        }
+    }
+
+    func cancelCurrentIdleTimer() {
+        let state = tabStates[currentTab]
+        state.idleTimer?.invalidate()
+        state.idleTimer = nil
+    }
+
+    func ensureCurrentTabWarm() {
+        let state = tabStates[currentTab]
+        if !state.isWarm {
+            createWebView(for: state)
+        }
+        state.webView?.isHidden = false
+        updateBackButton()
+    }
+
+    func tearDownAll() {
+        for state in tabStates { state.tearDown() }
         backButton.isEnabled = false
-        currentTab = 0
-        highlightTab(0)
     }
 
-    func reload() { webView?.reload() }
-    func goHome() { webView?.load(URLRequest(url: config.url)) }
-    var isWarm: Bool { webView != nil }
+    var isWarm: Bool { tabStates.contains(where: { $0.isWarm }) }
 
-    @objc func goBack() { webView?.goBack() }
+    // MARK: - Actions
 
-    private let internalHosts = ["icloud.com", "apple.com", "google.com", "googleapis.com", "gstatic.com", "accounts.google.com"]
+    @objc private func tabClicked(_ sender: NSButton) {
+        guard sender.tag != currentTab else { return }
+        showTab(sender.tag)
+    }
+
+    @objc private func doReload() { tabStates[currentTab].webView?.reload() }
+    @objc func goBack() { tabStates[currentTab].webView?.goBack() }
+    func goHome() { tabStates[currentTab].webView?.load(URLRequest(url: tabStates[currentTab].tab.url)) }
+
+    private func highlightTab(_ activeIndex: Int) {
+        for (i, btn) in tabButtons.enumerated() {
+            btn.contentTintColor = i == activeIndex ? .controlAccentColor : .tertiaryLabelColor
+        }
+    }
+
+    // MARK: - Navigation
 
     private func isInternalNavigation(_ url: URL) -> Bool {
         guard let host = url.host else { return true }
@@ -243,7 +298,6 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
     private var webVC: WebViewController!
-    private var idleTimer: Timer?
     private var lastClose: Date = .distantPast
     private let config = Config.parse()
 
@@ -283,9 +337,8 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func open() {
-        idleTimer?.invalidate()
-        idleTimer = nil
-        if !webVC.isWarm { webVC.warmUp() }
+        webVC.cancelCurrentIdleTimer()
+        webVC.ensureCurrentTabWarm()
         guard let btn = statusItem.button else { return }
         popover.show(relativeTo: btn.bounds, of: btn, preferredEdge: .minY)
         if #available(macOS 14.0, *) {
@@ -297,10 +350,7 @@ class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     func popoverDidClose(_ notification: Notification) {
         lastClose = Date()
-        idleTimer?.invalidate()
-        idleTimer = Timer.scheduledTimer(withTimeInterval: config.idleTimeout, repeats: false) { [weak self] _ in
-            self?.webVC.tearDown()
-        }
+        webVC.startAllIdleTimers()
     }
 
     private func showMenu() {
