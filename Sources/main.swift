@@ -127,6 +127,16 @@ class WebViewController: NSViewController, WKUIDelegate, WKNavigationDelegate {
             x += btn.frame.width + 2
         }
 
+        let homeBtn = NSButton(frame: NSRect(x: toolbar.bounds.width - 48, y: 1, width: 20, height: 20))
+        homeBtn.bezelStyle = .accessoryBarAction
+        homeBtn.image = NSImage(systemSymbolName: "house", accessibilityDescription: "Home")
+        homeBtn.imagePosition = .imageOnly
+        homeBtn.target = self
+        homeBtn.action = #selector(goHome)
+        homeBtn.isBordered = false
+        homeBtn.autoresizingMask = [.minXMargin]
+        toolbar.addSubview(homeBtn)
+
         let reloadBtn = NSButton(frame: NSRect(x: toolbar.bounds.width - 24, y: 1, width: 20, height: 20))
         reloadBtn.bezelStyle = .accessoryBarAction
         reloadBtn.image = NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "Reload")
@@ -249,7 +259,7 @@ class WebViewController: NSViewController, WKUIDelegate, WKNavigationDelegate {
 
     @objc private func doReload() { tabStates[currentTab].webView?.reload() }
     @objc func goBack() { tabStates[currentTab].webView?.goBack() }
-    func goHome() { tabStates[currentTab].webView?.load(URLRequest(url: tabStates[currentTab].tab.url)) }
+    @objc func goHome() { tabStates[currentTab].webView?.load(URLRequest(url: tabStates[currentTab].tab.url)) }
 
     private func highlightTab(_ activeIndex: Int) {
         for (i, btn) in tabButtons.enumerated() {
