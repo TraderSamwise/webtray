@@ -21,7 +21,7 @@ struct Config {
         return Config(
             url: URL(string: flag("--url", "https://www.icloud.com/notes"))!,
             icon: flag("--icon", "checklist"),
-            title: flag("--title", "MenuTray"),
+            title: flag("--title", "WebTray"),
             idleTimeout: Double(flag("--idle", "600")) ?? 600,
             width: size.count >= 1 ? CGFloat(Double(size[0]) ?? 420) : 420,
             height: size.count >= 2 ? CGFloat(Double(size[1]) ?? 700) : 700

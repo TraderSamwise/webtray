@@ -2,9 +2,9 @@
 import PackageDescription
 
 let package = Package(
-    name: "MenuTray",
+    name: "WebTray",
     platforms: [.macOS(.v13)],
     targets: [
-        .executableTarget(name: "menutray", path: "Sources")
+        .executableTarget(name: "webtray", path: "Sources")
     ]
 )
