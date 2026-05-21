@@ -261,7 +261,13 @@ class WebViewController: NSViewController, WKUIDelegate, WKNavigationDelegate {
 
     @objc private func doReload() { tabStates[currentTab].webView?.reload() }
     @objc func goBack() { tabStates[currentTab].webView?.goBack() }
-    @objc func goHome() { tabStates[currentTab].webView?.load(URLRequest(url: tabStates[currentTab].tab.url)) }
+    @objc func goHome() {
+        if popupWebView != nil {
+            popupWebView?.removeFromSuperview()
+            popupWebView = nil
+        }
+        tabStates[currentTab].webView?.load(URLRequest(url: tabStates[currentTab].tab.url))
+    }
 
     private func highlightTab(_ activeIndex: Int) {
         for (i, btn) in tabButtons.enumerated() {
@@ -293,8 +299,17 @@ class WebViewController: NSViewController, WKUIDelegate, WKNavigationDelegate {
         for navigationAction: WKNavigationAction,
         windowFeatures: WKWindowFeatures
     ) -> WKWebView? {
-        if let url = navigationAction.request.url, !isInternalNavigation(url) {
+        guard let url = navigationAction.request.url else {
+            webView.load(URLRequest(url: tabStates[currentTab].tab.url))
+            return nil
+        }
+        if !isInternalNavigation(url) {
             NSWorkspace.shared.open(url)
+            return nil
+        }
+        let tabHost = tabStates[currentTab].tab.hostMatch
+        if let host = url.host, host.contains(tabHost) {
+            webView.load(URLRequest(url: url))
             return nil
         }
         let popup = WKWebView(frame: webView.bounds, configuration: configuration)
