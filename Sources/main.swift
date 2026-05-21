@@ -63,10 +63,11 @@ class WebViewController: NSViewController, WKUIDelegate, WKNavigationDelegate {
     private var tabButtons: [NSButton] = []
     private var toolbar: NSView!
     private var currentTab: Int = 0
+    private var popupWebView: WKWebView?
     private static let toolbarHeight: CGFloat = 24
     let config: Config
 
-    private let internalHosts = ["icloud.com", "apple.com", "google.com", "googleapis.com", "gstatic.com"]
+    private let internalHosts = ["icloud.com", "apple.com", "google.com", "googleapis.com", "gstatic.com", "anthropic.com", "claude.ai"]
 
     init(config: Config) {
         self.config = config
@@ -74,6 +75,7 @@ class WebViewController: NSViewController, WKUIDelegate, WKNavigationDelegate {
             Tab(label: "iCloud", url: config.url, hostMatch: "icloud"),
             Tab(label: "Gmail", url: URL(string: "https://mail.google.com/mail/mu/")!, hostMatch: "mail.google"),
             Tab(label: "Calendar", url: URL(string: "https://calendar.google.com/calendar/r")!, hostMatch: "calendar.google"),
+            Tab(label: "Claude", url: URL(string: "https://claude.ai/")!, hostMatch: "claude.ai"),
         ]
         self.tabStates = tabs.map { TabState(tab: $0) }
         super.init(nibName: nil, bundle: nil)
@@ -295,10 +297,21 @@ class WebViewController: NSViewController, WKUIDelegate, WKNavigationDelegate {
             NSWorkspace.shared.open(url)
             return nil
         }
-        if navigationAction.targetFrame == nil {
-            webView.load(navigationAction.request)
+        let popup = WKWebView(frame: webView.bounds, configuration: configuration)
+        popup.autoresizingMask = [.width, .height]
+        popup.uiDelegate = self
+        popup.navigationDelegate = self
+        popup.customUserAgent = webView.customUserAgent
+        webView.addSubview(popup)
+        popupWebView = popup
+        return popup
+    }
+
+    func webViewDidClose(_ webView: WKWebView) {
+        if webView == popupWebView {
+            popupWebView?.removeFromSuperview()
+            popupWebView = nil
         }
-        return nil
     }
 }
 
