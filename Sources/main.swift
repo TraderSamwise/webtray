@@ -72,9 +72,9 @@ class WebViewController: NSViewController, WKUIDelegate, WKNavigationDelegate {
     init(config: Config) {
         self.config = config
         let tabs = [
-            Tab(label: "iCloud", url: config.url, hostMatch: "icloud"),
-            Tab(label: "Gmail", url: URL(string: "https://mail.google.com/mail/mu/")!, hostMatch: "mail.google"),
             Tab(label: "Calendar", url: URL(string: "https://calendar.google.com/calendar/r")!, hostMatch: "calendar.google"),
+            Tab(label: "Gmail", url: URL(string: "https://mail.google.com/mail/mu/")!, hostMatch: "mail.google"),
+            Tab(label: "iCloud", url: config.url, hostMatch: "icloud"),
             Tab(label: "Claude", url: URL(string: "https://claude.ai/")!, hostMatch: "claude.ai"),
         ]
         self.tabStates = tabs.map { TabState(tab: $0) }
